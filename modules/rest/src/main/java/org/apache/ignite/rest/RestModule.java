@@ -17,21 +17,31 @@
 
 package org.apache.ignite.rest;
 
-import com.google.gson.JsonSyntaxException;
 import io.javalin.Javalin;
 import java.io.Reader;
+import io.javalin.plugin.openapi.OpenApiOptions;
+import io.javalin.plugin.openapi.OpenApiPlugin;
+import io.javalin.plugin.openapi.dsl.OpenApiBuilder;
+import io.javalin.plugin.openapi.ui.SwaggerOptions;
+import io.swagger.v3.oas.models.info.Info;
 import org.apache.ignite.configuration.ConfigurationRegistry;
 import org.apache.ignite.configuration.Configurator;
-import org.apache.ignite.configuration.internal.selector.SelectorNotFoundException;
-import org.apache.ignite.configuration.validation.ConfigurationValidationException;
 import org.apache.ignite.rest.configuration.InitRest;
 import org.apache.ignite.rest.configuration.RestConfigurationImpl;
 import org.apache.ignite.rest.configuration.Selectors;
+import org.apache.ignite.rest.handlers.BaselineHandlers;
+import org.apache.ignite.rest.handlers.ConfigurationHandlers;
+import org.apache.ignite.rest.models.ConsistentIds;
 import org.apache.ignite.rest.presentation.ConfigurationPresentation;
 import org.apache.ignite.rest.presentation.FormatConverter;
 import org.apache.ignite.rest.presentation.json.JsonConverter;
 import org.apache.ignite.rest.presentation.json.JsonPresentation;
 import org.slf4j.Logger;
+
+import static io.javalin.apibuilder.ApiBuilder.get;
+import static io.javalin.apibuilder.ApiBuilder.path;
+import static io.javalin.apibuilder.ApiBuilder.post;
+import static io.javalin.apibuilder.ApiBuilder.put;
 
 /**
  * Rest module is responsible for starting a REST endpoints for accessing and managing configuration.
@@ -87,52 +97,49 @@ public class RestModule {
     /** */
     public void start() {
         Javalin app = startRestEndpoint();
+//        routes(app);
+    }
 
-        FormatConverter converter = new JsonConverter();
+    private void routes(Javalin app) {
+        var configurationHandlers = new ConfigurationHandlers(presentation);
+        var baselineHandlers = new BaselineHandlers();
 
-        app.get(CONF_URL, ctx -> {
-            ctx.result(presentation.represent());
-        });
+        app.routes(() -> {
+            path("v1/configuration", () -> {
+                get(configurationHandlers::get);
+                get("/:selector", configurationHandlers::getByPath);
+                post(configurationHandlers::set);
+            });
 
-        app.get(CONF_URL + ":" + PATH_PARAM, ctx -> {
-            String configPath = ctx.pathParam(PATH_PARAM);
+            path("v1/baseline", () -> {
+                get("",
+                    OpenApiBuilder.documented(
+                        OpenApiBuilder
+                            .document()
+                            .json("200", ConsistentIds.class),
+                        baselineHandlers::get));
 
-            try {
-                ctx.result(presentation.representByPath(configPath));
-            }
-            catch (SelectorNotFoundException | IllegalArgumentException pathE) {
-                ErrorResult eRes = new ErrorResult("CONFIG_PATH_UNRECOGNIZED", pathE.getMessage());
+                put("",
+                    OpenApiBuilder.documented(
+                        OpenApiBuilder
+                            .document()
+                            .result("200").body(ConsistentIds.class),
+                        baselineHandlers::set));
 
-                ctx.status(400).result(converter.convertTo("error", eRes));
-            }
-        });
+                put("/add-nodes",
+                    OpenApiBuilder.documented(
+                        OpenApiBuilder
+                            .document()
+                            .body(ConsistentIds.class)
+                            .result("200"),
+                        baselineHandlers::add));
 
-        app.post(CONF_URL, ctx -> {
-            try {
-                presentation.update(ctx.body());
-            }
-            catch (SelectorNotFoundException | IllegalArgumentException argE) {
-                ErrorResult eRes = new ErrorResult("CONFIG_PATH_UNRECOGNIZED", argE.getMessage());
-
-                ctx.status(400).result(converter.convertTo("error", eRes));
-            }
-            catch (ConfigurationValidationException validationE) {
-                ErrorResult eRes = new ErrorResult("APPLICATION_EXCEPTION", validationE.getMessage());
-
-                ctx.status(400).result(converter.convertTo("error", eRes));
-            }
-            catch (JsonSyntaxException e) {
-                String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-
-                ErrorResult eRes = new ErrorResult("VALIDATION_EXCEPTION", msg);
-
-                ctx.status(400).result(converter.convertTo("error", eRes));
-            }
-            catch (Exception e) {
-                ErrorResult eRes = new ErrorResult("VALIDATION_EXCEPTION", e.getMessage());
-
-                ctx.status(400).result(converter.convertTo("error", eRes));
-            }
+                put("remove-nodes",
+                    OpenApiBuilder.documented(
+                        OpenApiBuilder.document()
+                            .body(ConsistentIds.class).result("200"),
+                        baselineHandlers::remove));
+            });
         });
     }
 
@@ -142,10 +149,11 @@ public class RestModule {
         Integer portRange = sysConf.getConfiguration(RestConfigurationImpl.KEY).portRange().value();
 
         Javalin app = null;
+        int _port = 0;
 
         if (portRange == null || portRange == 0) {
             try {
-                app = Javalin.create().start(port != null ? port : DFLT_PORT);
+               _port = (port != null ? port : DFLT_PORT);
             }
             catch (RuntimeException e) {
                 log.warn("Failed to start REST endpoint: ", e);
@@ -158,7 +166,7 @@ public class RestModule {
 
             for (int portCandidate = startPort; portCandidate < startPort + portRange; portCandidate++) {
                 try {
-                    app = Javalin.create().start(portCandidate);
+                    _port = (portCandidate);
                 }
                 catch (RuntimeException ignored) {
                     // No-op.
@@ -168,7 +176,7 @@ public class RestModule {
                     break;
             }
 
-            if (app == null) {
+            if (_port == 0) {
                 String msg = "Cannot start REST endpoint. " +
                     "All ports in range [" + startPort + ", " + (startPort + portRange) + ") are in use.";
 
@@ -178,6 +186,21 @@ public class RestModule {
             }
         }
 
+
+        app = Javalin.create(
+            config -> config.registerPlugin(
+                new OpenApiPlugin(
+                    new OpenApiOptions(
+                        new Info().description("Apache Ignite REST API")
+                    )
+                        .path("/swagger-docs")
+                        .swagger(new SwaggerOptions("/swagger").title("My Swagger Documentation"))
+                        .activateAnnotationScanningFor("org.apache.ignite.rest")
+                )
+            )
+        );
+        routes(app);
+        app.start(_port);
         log.info("REST protocol started successfully on port " + app.port());
 
         return app;
