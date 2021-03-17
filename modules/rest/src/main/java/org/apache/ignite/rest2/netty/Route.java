@@ -1,31 +1,40 @@
 package org.apache.ignite.rest2.netty;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiConsumer;
+import io.netty.handler.codec.http.FullHttpRequest;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpRequest;
-import io.netty.util.AsciiString;
 
 public class Route {
 
-    public final String route;
+    /** Route. */
+    private final String route;
 
-    public final HttpMethod method;
+    /** Method. */
+    private final HttpMethod method;
 
-    public final Optional<String> acceptType;
+    /** Accept type. */
+    private final Optional<String> acceptType;
 
-    public final Handler handler;
+    /** Handler. */
+    private final BiConsumer<RestApiHttpRequest, RestApiHttpResponse> handler;
 
-    private Route(String route, HttpMethod method, Optional<String> acceptType,
-        Handler handler) {
+    public Route(String route, HttpMethod method, Optional<String> acceptType,
+        BiConsumer<RestApiHttpRequest, RestApiHttpResponse> handler) {
         this.route = route;
         this.method = method;
         this.acceptType = acceptType;
         this.handler = handler;
+    }
+
+    public void handle(FullHttpRequest req, RestApiHttpResponse resp) {
+        handler.accept(new RestApiHttpRequest(req, paramsDecode(req.uri())),
+            resp);
     }
 
     public boolean isApplicable(HttpRequest req) {
@@ -76,15 +85,4 @@ public class Route {
         return res;
     }
 
-    public static <T> Route get(String route, AsciiString acceptType, Handler handler) {
-        return new Route(route, HttpMethod.GET, Optional.of(acceptType.toString()), handler);
-    }
-
-    public static <T> Route get(String route, Handler handler) {
-        return new Route(route, HttpMethod.GET, Optional.empty(), handler);
-    }
-
-    public static Route put(String route, AsciiString acceptType, Handler handler) {
-        return new Route(route, HttpMethod.PUT, Optional.ofNullable(acceptType.toString()), handler);
-    }
 }

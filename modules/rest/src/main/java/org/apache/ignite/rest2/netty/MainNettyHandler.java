@@ -9,10 +9,10 @@ import io.netty.handler.codec.http.HttpServerExpectContinueHandler;
 
 public class MainNettyHandler extends ChannelInitializer<SocketChannel> {
 
-    private final Dispatcher dispatcher;
+    private final Router router;
 
-    public MainNettyHandler(Dispatcher dispatcher) {
-        this.dispatcher = dispatcher;
+    public MainNettyHandler(Router router) {
+        this.router = router;
     }
 
     @Override
@@ -21,6 +21,6 @@ public class MainNettyHandler extends ChannelInitializer<SocketChannel> {
         p.addLast(new HttpServerCodec());
         p.addLast(new HttpServerExpectContinueHandler());
         p.addLast(new HttpObjectAggregator(Integer.MAX_VALUE));
-        p.addLast(new HttpRestHandler(dispatcher));
+        p.addLast(new HttpRestHandler(router));
     }
 }

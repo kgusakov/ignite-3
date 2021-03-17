@@ -17,6 +17,7 @@
 
 package org.apache.ignite.rest;
 
+import com.google.gson.JsonSyntaxException;
 import io.javalin.Javalin;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
@@ -33,15 +34,15 @@ import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import org.apache.ignite.configuration.ConfigurationRegistry;
-import org.apache.ignite.rest.configuration.RestConfigurationImpl;
+import org.apache.ignite.configuration.validation.ConfigurationValidationException;
 import org.apache.ignite.rest.presentation.ConfigurationPresentation;
 import org.apache.ignite.rest.presentation.json.JsonPresentation;
-import org.apache.ignite.rest2.netty.Dispatcher;
+import org.apache.ignite.rest2.netty.Router;
 import org.apache.ignite.rest2.netty.MainNettyHandler;
 import org.apache.ignite.rest2.netty.Route;
 import org.slf4j.Logger;
 
-import static org.apache.ignite.rest2.netty.Route.*;
+import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
 
 /**
  * Rest module is responsible for starting a REST endpoints for accessing and managing configuration.
@@ -79,132 +80,60 @@ public class RestModule {
 
         presentation = new JsonPresentation(Collections.emptyMap());
 
-//        FormatConverter converter = new JsonConverter();
-//
-//        Configurator<RestConfigurationImpl> restConf = Configurator.create(RestConfigurationImpl::new,
-//            converter.convertFrom(moduleConfReader, "rest", InitRest.class));
-//
-//        sysConfig.registerConfigurator(restConf);
     }
 
     /** */
     public void start() throws InterruptedException {
-//        Javalin app = startRestEndpoint();
-//
-//        FormatConverter converter = new JsonConverter();
-
         var routes = Arrays.asList(
-            get(CONF_URL, HttpHeaderValues.APPLICATION_JSON, (req, resp) -> {
-                return presentation.represent();
+            Router.get(CONF_URL, HttpHeaderValues.APPLICATION_JSON, (req, resp) -> {
+                resp.content(presentation.represent());
             }),
 
-            get(CONF_URL + ":" + PATH_PARAM, (req, resp) -> {
-               String cfgPath = req.qryParams.get(PATH_PARAM);
-               return presentation.representByPath(cfgPath);
+            Router.get(CONF_URL + ":" + PATH_PARAM, (req, resp) -> {
+               String cfgPath = req.queryParams().get(PATH_PARAM);
+               try {
+                   resp.content(presentation.representByPath(cfgPath));
+               } catch (IllegalArgumentException pathE) {
+                   ErrorResult eRes = new ErrorResult("CONFIG_PATH_UNRECOGNIZED", pathE.getMessage());
+
+                   resp.response().setStatus(BAD_REQUEST);
+                   resp.content(eRes);
+               }
             }),
 
-            put(CONF_URL, HttpHeaderValues.APPLICATION_JSON, (req, resp) -> {
-                presentation.update(req.req.content().readCharSequence(req.req.content().readableBytes(), StandardCharsets.UTF_8).toString());
-                return null;
-            })
+            Router.put(CONF_URL, HttpHeaderValues.APPLICATION_JSON, (req, resp) -> {
+                try {
+                    presentation.update(req.request().content().readCharSequence(req.request().content().readableBytes(), StandardCharsets.UTF_8).toString());
+                }
+                catch (IllegalArgumentException argE) {
+                        ErrorResult eRes = new ErrorResult("CONFIG_PATH_UNRECOGNIZED", argE.getMessage());
+
+                        resp.response().setStatus(BAD_REQUEST);
+                        resp.content(eRes);
+                    }
+                catch (ConfigurationValidationException validationE) {
+                        ErrorResult eRes = new ErrorResult("APPLICATION_EXCEPTION", validationE.getMessage());
+
+                        resp.response().setStatus(BAD_REQUEST);
+                        resp.content(eRes);
+                    }
+                catch (JsonSyntaxException e) {
+                        String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+
+                        ErrorResult eRes = new ErrorResult("VALIDATION_EXCEPTION", msg);
+                        resp.response().setStatus(BAD_REQUEST);
+                        resp.content(eRes);
+                    }
+                catch (Exception e) {
+                        ErrorResult eRes = new ErrorResult("VALIDATION_EXCEPTION", e.getMessage());
+
+                        resp.response().setStatus(BAD_REQUEST);
+                        resp.content(eRes);
+                    }
+                })
         );
 
         startRestEndpoint(routes);
-/*
-        app.get(CONF_URL, ctx -> {
-            ctx.result(presentation.represent());
-        });
-
-        app.get(CONF_URL + ":" + PATH_PARAM, ctx -> {
-            String configPath = ctx.pathParam(PATH_PARAM);
-
-            try {
-                ctx.result(presentation.representByPath(configPath));
-            }
-            catch (IllegalArgumentException pathE) {
-                ErrorResult eRes = new ErrorResult("CONFIG_PATH_UNRECOGNIZED", pathE.getMessage());
-
-                ctx.status(400).result(converter.convertTo("error", eRes));
-            }
-        });
-
-        app.post(CONF_URL, ctx -> {
-            try {
-                presentation.update(ctx.body());
-            }
-            catch (IllegalArgumentException argE) {
-                ErrorResult eRes = new ErrorResult("CONFIG_PATH_UNRECOGNIZED", argE.getMessage());
-
-                ctx.status(400).result(converter.convertTo("error", eRes));
-            }
-            catch (ConfigurationValidationException validationE) {
-                ErrorResult eRes = new ErrorResult("APPLICATION_EXCEPTION", validationE.getMessage());
-
-                ctx.status(400).result(converter.convertTo("error", eRes));
-            }
-            catch (JsonSyntaxException e) {
-                String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
-
-                ErrorResult eRes = new ErrorResult("VALIDATION_EXCEPTION", msg);
-
-                ctx.status(400).result(converter.convertTo("error", eRes));
-            }
-            catch (Exception e) {
-                ErrorResult eRes = new ErrorResult("VALIDATION_EXCEPTION", e.getMessage());
-
-                ctx.status(400).result(converter.convertTo("error", eRes));
-            }
-        });*/
-    }
-
-    /** */
-    private Javalin startRestEndpoint() {
-        Integer port = sysConf.getConfiguration(RestConfigurationImpl.KEY).port().value();
-        Integer portRange = sysConf.getConfiguration(RestConfigurationImpl.KEY).portRange().value();
-
-        Javalin app = null;
-        int _port = 0;
-
-        if (portRange == null || portRange == 0) {
-            try {
-               _port = (port != null ? port : DFLT_PORT);
-            }
-            catch (RuntimeException e) {
-                log.warn("Failed to start REST endpoint: ", e);
-
-                throw e;
-            }
-        }
-        else {
-            int startPort = port;
-
-            for (int portCandidate = startPort; portCandidate < startPort + portRange; portCandidate++) {
-                try {
-                    _port = (portCandidate);
-                }
-                catch (RuntimeException ignored) {
-                    // No-op.
-                }
-
-                if (app != null)
-                    break;
-            }
-
-            if (_port == 0) {
-                String msg = "Cannot start REST endpoint. " +
-                    "All ports in range [" + startPort + ", " + (startPort + portRange) + ") are in use.";
-
-                log.warn(msg);
-
-                throw new RuntimeException(msg);
-            }
-        }
-
-        app = Javalin.create();
-        app.start(_port);
-        log.info("REST protocol started successfully on port " + app.port());
-
-        return app;
     }
 
     public void startRestEndpoint(List<Route> routes) throws InterruptedException {
@@ -253,7 +182,7 @@ public class RestModule {
 
         EventLoopGroup bossGroup = new NioEventLoopGroup(1);
         EventLoopGroup workerGroup = new NioEventLoopGroup();
-        var dispatcher = new Dispatcher(routes);
+        var dispatcher = new Router(routes);
         var handler = new MainNettyHandler(dispatcher);
         try {
             ServerBootstrap b = new ServerBootstrap();
