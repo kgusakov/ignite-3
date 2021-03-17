@@ -17,9 +17,12 @@
 
 package org.apache.ignite.rest;
 
+import com.fasterxml.jackson.annotation.JsonRootName;
+
 /**
  * Error result represent a tuple of error type and user-friendly error message.
  */
+@JsonRootName(value = "error")
 public class ErrorResult {
     /** */
     private final String type;
