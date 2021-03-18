@@ -1,4 +1,4 @@
-package org.apache.ignite.rest2.netty;
+package org.apache.ignite.rest.netty;
 
 import java.util.Collections;
 import java.util.Map;

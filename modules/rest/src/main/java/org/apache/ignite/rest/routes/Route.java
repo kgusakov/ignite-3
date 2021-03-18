@@ -1,14 +1,16 @@
-package org.apache.ignite.rest2.netty;
+package org.apache.ignite.rest.routes;
 
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.BiConsumer;
 import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpRequest;
+import org.apache.ignite.rest.netty.RestApiHttpRequest;
+import org.apache.ignite.rest.netty.RestApiHttpResponse;
 
 public class Route {
 
@@ -19,12 +21,12 @@ public class Route {
     private final HttpMethod method;
 
     /** Accept type. */
-    private final Optional<String> acceptType;
+    private final String acceptType;
 
     /** Handler. */
     private final BiConsumer<RestApiHttpRequest, RestApiHttpResponse> handler;
 
-    public Route(String route, HttpMethod method, Optional<String> acceptType,
+    public Route(String route, HttpMethod method, String acceptType,
         BiConsumer<RestApiHttpRequest, RestApiHttpResponse> handler) {
         this.route = route;
         this.method = method;
@@ -37,12 +39,17 @@ public class Route {
             resp);
     }
 
-    public boolean isApplicable(HttpRequest req) {
+    public boolean match(HttpRequest req) {
         return req.method().equals(method) &&
-            match(req.uri());
+            matchUri(req.uri()) &&
+            matchContenType(req.headers().get(HttpHeaderNames.CONTENT_TYPE));
     }
 
-    public boolean match(String uri) {
+    private boolean matchContenType(String s) {
+        return (acceptType == null) || (acceptType.equals(s));
+    }
+
+    public boolean matchUri(String uri) {
         var receivedParts = new ArrayDeque<>(Arrays.asList(uri.split("/")));
         var realparts = new ArrayDeque<>(Arrays.asList(route.split("/")));
 

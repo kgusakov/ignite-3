@@ -18,12 +18,10 @@
 package org.apache.ignite.rest;
 
 import com.google.gson.JsonSyntaxException;
-import io.javalin.Javalin;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.List;
+import java.util.Map;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelOption;
@@ -35,11 +33,11 @@ import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import org.apache.ignite.configuration.ConfigurationRegistry;
 import org.apache.ignite.configuration.validation.ConfigurationValidationException;
+import org.apache.ignite.rest.configuration.RestConfigurationImpl;
 import org.apache.ignite.rest.presentation.ConfigurationPresentation;
 import org.apache.ignite.rest.presentation.json.JsonPresentation;
-import org.apache.ignite.rest2.netty.Router;
-import org.apache.ignite.rest2.netty.MainNettyHandler;
-import org.apache.ignite.rest2.netty.Route;
+import org.apache.ignite.rest.routes.Router;
+import org.apache.ignite.rest.netty.RestApiInitializer;
 import org.slf4j.Logger;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
@@ -80,69 +78,79 @@ public class RestModule {
 
         presentation = new JsonPresentation(Collections.emptyMap());
 
+//        FormatConverter converter = new JsonConverter();
+//
+//        Configurator<RestConfigurationImpl> restConf = Configurator.create(RestConfigurationImpl::new,
+//            converter.convertFrom(moduleConfReader, "rest", InitRest.class));
+//
+//        sysConfig.registerConfigurator(restConf);
     }
 
-    /** */
+    /**
+     *
+     */
     public void start() throws InterruptedException {
-        var routes = Arrays.asList(
-            Router.get(CONF_URL, HttpHeaderValues.APPLICATION_JSON, (req, resp) -> {
-                resp.content(presentation.represent());
-            }),
-
-            Router.get(CONF_URL + ":" + PATH_PARAM, (req, resp) -> {
-               String cfgPath = req.queryParams().get(PATH_PARAM);
-               try {
-                   resp.content(presentation.representByPath(cfgPath));
-               } catch (IllegalArgumentException pathE) {
-                   ErrorResult eRes = new ErrorResult("CONFIG_PATH_UNRECOGNIZED", pathE.getMessage());
-
-                   resp.response().setStatus(BAD_REQUEST);
-                   resp.content(eRes);
-               }
-            }),
-
-            Router.put(CONF_URL, HttpHeaderValues.APPLICATION_JSON, (req, resp) -> {
+        var router = new Router();
+        router
+            .get(CONF_URL, (req, resp) -> {
+                resp.json(presentation.represent());
+            })
+            .get(CONF_URL + ":" + PATH_PARAM, (req, resp) -> {
+                String cfgPath = req.queryParams().get(PATH_PARAM);
                 try {
-                    presentation.update(req.request().content().readCharSequence(req.request().content().readableBytes(), StandardCharsets.UTF_8).toString());
+                    resp.json(presentation.representByPath(cfgPath));
+                }
+                catch (IllegalArgumentException pathE) {
+                    ErrorResult eRes = new ErrorResult("CONFIG_PATH_UNRECOGNIZED", pathE.getMessage());
+
+                    resp.status(BAD_REQUEST);
+                    resp.json(Map.of("error", eRes));
+                }
+            })
+            .put(CONF_URL, HttpHeaderValues.APPLICATION_JSON, (req, resp) -> {
+                try {
+                    presentation.update(
+                        req
+                            .request()
+                            .content()
+                            .readCharSequence(req.request().content().readableBytes(), StandardCharsets.UTF_8)
+                            .toString());
                 }
                 catch (IllegalArgumentException argE) {
-                        ErrorResult eRes = new ErrorResult("CONFIG_PATH_UNRECOGNIZED", argE.getMessage());
+                    ErrorResult eRes = new ErrorResult("CONFIG_PATH_UNRECOGNIZED", argE.getMessage());
 
-                        resp.response().setStatus(BAD_REQUEST);
-                        resp.content(eRes);
-                    }
+                    resp.status(BAD_REQUEST);
+                    resp.json(Map.of("error", eRes));
+                }
                 catch (ConfigurationValidationException validationE) {
-                        ErrorResult eRes = new ErrorResult("APPLICATION_EXCEPTION", validationE.getMessage());
+                    ErrorResult eRes = new ErrorResult("APPLICATION_EXCEPTION", validationE.getMessage());
 
-                        resp.response().setStatus(BAD_REQUEST);
-                        resp.content(eRes);
-                    }
+                    resp.status(BAD_REQUEST);
+                    resp.json(Map.of("error", eRes));
+                    resp.json(eRes);
+                }
                 catch (JsonSyntaxException e) {
-                        String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+                    String msg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
 
-                        ErrorResult eRes = new ErrorResult("VALIDATION_EXCEPTION", msg);
-                        resp.response().setStatus(BAD_REQUEST);
-                        resp.content(eRes);
-                    }
+                    ErrorResult eRes = new ErrorResult("VALIDATION_EXCEPTION", msg);
+                    resp.status(BAD_REQUEST);
+                    resp.json(Map.of("error", eRes));
+                }
                 catch (Exception e) {
-                        ErrorResult eRes = new ErrorResult("VALIDATION_EXCEPTION", e.getMessage());
+                    ErrorResult eRes = new ErrorResult("VALIDATION_EXCEPTION", e.getMessage());
 
-                        resp.response().setStatus(BAD_REQUEST);
-                        resp.content(eRes);
-                    }
-                })
-        );
+                    resp.status(BAD_REQUEST);
+                    resp.json(Map.of("error", eRes));
+                }
+            });
 
-        startRestEndpoint(routes);
+        startRestEndpoint(router);
     }
 
-    public void startRestEndpoint(List<Route> routes) throws InterruptedException {
-//        Integer port = sysConf.getConfiguration(RestConfigurationImpl.KEY).port().value();
-//        Integer portRange = sysConf.getConfiguration(RestConfigurationImpl.KEY).portRange().value();
-        Integer port = 8080;
-        Integer portRange = 0;
+    public void startRestEndpoint(Router router) throws InterruptedException {
+        Integer port = sysConf.getConfiguration(RestConfigurationImpl.KEY).port().value();
+        Integer portRange = sysConf.getConfiguration(RestConfigurationImpl.KEY).portRange().value();
 
-        Javalin app = null;
         int _port = 0;
 
         if (portRange == null || portRange == 0) {
@@ -165,9 +173,6 @@ public class RestModule {
                 catch (RuntimeException ignored) {
                     // No-op.
                 }
-
-                if (app != null)
-                    break;
             }
 
             if (_port == 0) {
@@ -182,8 +187,7 @@ public class RestModule {
 
         EventLoopGroup bossGroup = new NioEventLoopGroup(1);
         EventLoopGroup workerGroup = new NioEventLoopGroup();
-        var dispatcher = new Router(routes);
-        var handler = new MainNettyHandler(dispatcher);
+        var handler = new RestApiInitializer(router);
         try {
             ServerBootstrap b = new ServerBootstrap();
             b.option(ChannelOption.SO_BACKLOG, 1024);
@@ -194,15 +198,14 @@ public class RestModule {
 
             Channel ch = b.bind(_port).sync().channel();
 
-            System.err.println("Open your web browser and navigate to " +
-                "http://127.0.0.1:" + _port + '/');
+            log.info("REST protocol started successfully on port " + _port);
 
             ch.closeFuture().sync();
-        } finally {
+        }
+        finally {
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();
         }
-
     }
 
     /** */

@@ -1,4 +1,4 @@
-package org.apache.ignite.rest2.netty;
+package org.apache.ignite.rest.netty;
 
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelPipeline;
@@ -6,12 +6,13 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.HttpServerExpectContinueHandler;
+import org.apache.ignite.rest.routes.Router;
 
-public class MainNettyHandler extends ChannelInitializer<SocketChannel> {
+public class RestApiInitializer extends ChannelInitializer<SocketChannel> {
 
     private final Router router;
 
-    public MainNettyHandler(Router router) {
+    public RestApiInitializer(Router router) {
         this.router = router;
     }
 
@@ -21,6 +22,6 @@ public class MainNettyHandler extends ChannelInitializer<SocketChannel> {
         p.addLast(new HttpServerCodec());
         p.addLast(new HttpServerExpectContinueHandler());
         p.addLast(new HttpObjectAggregator(Integer.MAX_VALUE));
-        p.addLast(new HttpRestHandler(router));
+        p.addLast(new RestApiHandler(router));
     }
 }
