@@ -15,13 +15,12 @@
  * limitations under the License.
  */
 
-package org.apache.ignite.metastorage.internal.watch;
+package org.apache.ignite.internal.metastorage.watch;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiConsumer;
@@ -32,8 +31,8 @@ import org.apache.ignite.metastorage.common.WatchListener;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Needed to aggregate client watches to one aggregated watch.
- * This approach needed to provide the following additional guarantee to watching mechanism:
+ * Needed to aggregate multiple watches to one aggregated watch.
+ * This approach needed to provide the following additional guarantees to watching mechanism:
  * - watch events will be processed sequentially
  * - watch events will be resolved in the order of watch registration
  */

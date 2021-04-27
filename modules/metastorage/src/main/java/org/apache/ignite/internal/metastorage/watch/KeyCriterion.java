@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.ignite.metastorage.internal.watch;
+package org.apache.ignite.internal.metastorage.watch;
 
 import java.util.Arrays;
 import java.util.Collection;

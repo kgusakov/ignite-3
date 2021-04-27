@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.ignite.metastorage.internal;
+package org.apache.ignite.internal.metastorage;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -24,7 +24,7 @@ import org.apache.ignite.metastorage.common.Entry;
 import org.apache.ignite.metastorage.common.Key;
 import org.apache.ignite.metastorage.common.WatchEvent;
 import org.apache.ignite.metastorage.common.WatchListener;
-import org.apache.ignite.metastorage.internal.watch.WatchAggregator;
+import org.apache.ignite.internal.metastorage.watch.WatchAggregator;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
